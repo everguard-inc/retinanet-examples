@@ -33,6 +33,7 @@ class Model(nn.Module):
         rotated_bbox=False,
         anchor_ious=[0.4, 0.5],
         config={},
+        multilabel=True,
     ):
         super().__init__()
 
@@ -49,8 +50,12 @@ class Model(nn.Module):
         self.scales = scales
         self.angles = angles if angles is not None else [-np.pi / 6, 0, np.pi / 6] if self.rotated_bbox else None
         self.anchors = {}
+        self.multilabel = multilabel
         # self.classes = classes
-        self.classes = int(np.log2(classes)) + 1
+        if multilabel:
+            self.classes = int(np.log2(classes)) + 1
+        else:
+            self.classes = classes
 
         self.threshold = config.get("threshold", 0.05)
         self.top_n = config.get("top_n", 1000)
@@ -230,7 +235,7 @@ class Model(nn.Module):
     def save(self, state):
         checkpoint = {
             "backbone": [k for k, _ in self.backbones.items()],
-            "classes": self.classes,
+            "classes": self.classes if not self.multilabel else int(2 ** (self.classes - 1)),
             "state_dict": self.state_dict(),
             "ratios": self.ratios,
             "scales": self.scales,
