@@ -1,12 +1,14 @@
+import numpy as np
 import torch
+
 from ._C import decode as decode_cuda
 from ._C import iou as iou_cuda
 from ._C import nms as nms_cuda
-import numpy as np
 from .utils import order_points, rotate_boxes
 
+
 def generate_anchors(stride, ratio_vals, scales_vals, angles_vals=None):
-    'Generate anchors coordinates from scales/ratios'
+    "Generate anchors coordinates from scales/ratios"
 
     scales = torch.FloatTensor(scales_vals).repeat(len(ratio_vals), 1)
     scales = scales.transpose(0, 1).contiguous().view(-1, 1)
@@ -21,65 +23,62 @@ def generate_anchors(stride, ratio_vals, scales_vals, angles_vals=None):
 
 
 def generate_anchors_rotated(stride, ratio_vals, scales_vals, angles_vals):
-    'Generate anchors coordinates from scales/ratios/angles'
-    scales = torch.FloatTensor(scales_vals).repeat(len(ratio_vals), 1) 
+    "Generate anchors coordinates from scales/ratios/angles"
+    scales = torch.FloatTensor(scales_vals).repeat(len(ratio_vals), 1)
     scales = scales.transpose(0, 1).contiguous().view(-1, 1)
     ratios = torch.FloatTensor(ratio_vals * len(scales_vals))
 
     wh = torch.FloatTensor([stride]).repeat(len(ratios), 2)
     ws = torch.round(torch.sqrt(wh[:, 0] * wh[:, 1] / ratios))
     dwh = torch.stack([ws, torch.round(ws * ratios)], dim=1)
-    
+
     xy0 = 0.5 * (wh - dwh * scales)
     xy2 = 0.5 * (wh + dwh * scales) - 1
-    xy1 = xy0 + (xy2 - xy0) * torch.FloatTensor([0,1])
-    xy3 = xy0 + (xy2 - xy0) * torch.FloatTensor([1,0])
-    
-    angles = torch.FloatTensor(angles_vals)
-    theta = angles.repeat(xy0.size(0),1)
-    theta = theta.transpose(0,1).contiguous().view(-1,1)
+    xy1 = xy0 + (xy2 - xy0) * torch.FloatTensor([0, 1])
+    xy3 = xy0 + (xy2 - xy0) * torch.FloatTensor([1, 0])
 
-    xmin_ymin = xy0.repeat(int(theta.size(0)/xy0.size(0)),1)
-    xmax_ymax = xy2.repeat(int(theta.size(0)/xy2.size(0)),1)
+    angles = torch.FloatTensor(angles_vals)
+    theta = angles.repeat(xy0.size(0), 1)
+    theta = theta.transpose(0, 1).contiguous().view(-1, 1)
+
+    xmin_ymin = xy0.repeat(int(theta.size(0) / xy0.size(0)), 1)
+    xmax_ymax = xy2.repeat(int(theta.size(0) / xy2.size(0)), 1)
     widths_heights = dwh * scales
-    widths_heights = widths_heights.repeat(int(theta.size(0)/widths_heights.size(0)),1)
+    widths_heights = widths_heights.repeat(int(theta.size(0) / widths_heights.size(0)), 1)
 
     u = torch.stack([torch.cos(angles), torch.sin(angles)], dim=1)
     l = torch.stack([-torch.sin(angles), torch.cos(angles)], dim=1)
     R = torch.stack([u, l], dim=1)
 
-    xy0R = torch.matmul(R,xy0.transpose(1,0) - stride/2 + 0.5) + stride/2 - 0.5
-    xy1R = torch.matmul(R,xy1.transpose(1,0) - stride/2 + 0.5) + stride/2 - 0.5
-    xy2R = torch.matmul(R,xy2.transpose(1,0) - stride/2 + 0.5) + stride/2 - 0.5
-    xy3R = torch.matmul(R,xy3.transpose(1,0) - stride/2 + 0.5) + stride/2 - 0.5
-    
-    xy0R = xy0R.permute(0,2,1).contiguous().view(-1,2)
-    xy1R = xy1R.permute(0,2,1).contiguous().view(-1,2)
-    xy2R = xy2R.permute(0,2,1).contiguous().view(-1,2)
-    xy3R = xy3R.permute(0,2,1).contiguous().view(-1,2)
+    xy0R = torch.matmul(R, xy0.transpose(1, 0) - stride / 2 + 0.5) + stride / 2 - 0.5
+    xy1R = torch.matmul(R, xy1.transpose(1, 0) - stride / 2 + 0.5) + stride / 2 - 0.5
+    xy2R = torch.matmul(R, xy2.transpose(1, 0) - stride / 2 + 0.5) + stride / 2 - 0.5
+    xy3R = torch.matmul(R, xy3.transpose(1, 0) - stride / 2 + 0.5) + stride / 2 - 0.5
+
+    xy0R = xy0R.permute(0, 2, 1).contiguous().view(-1, 2)
+    xy1R = xy1R.permute(0, 2, 1).contiguous().view(-1, 2)
+    xy2R = xy2R.permute(0, 2, 1).contiguous().view(-1, 2)
+    xy3R = xy3R.permute(0, 2, 1).contiguous().view(-1, 2)
 
     anchors_axis = torch.cat([xmin_ymin, xmax_ymax], dim=1)
-    anchors_rotated = order_points(torch.stack([xy0R,xy1R,xy2R,xy3R],dim = 1)).view(-1,8)
+    anchors_rotated = order_points(torch.stack([xy0R, xy1R, xy2R, xy3R], dim=1)).view(-1, 8)
 
     return anchors_axis, anchors_rotated
 
 
 def box2delta(boxes, anchors):
-    'Convert boxes to deltas from anchors'
+    "Convert boxes to deltas from anchors"
 
     anchors_wh = anchors[:, 2:] - anchors[:, :2] + 1
     anchors_ctr = anchors[:, :2] + 0.5 * anchors_wh
     boxes_wh = boxes[:, 2:] - boxes[:, :2] + 1
     boxes_ctr = boxes[:, :2] + 0.5 * boxes_wh
 
-    return torch.cat([
-        (boxes_ctr - anchors_ctr) / anchors_wh,
-        torch.log(boxes_wh / anchors_wh)
-    ], 1)
+    return torch.cat([(boxes_ctr - anchors_ctr) / anchors_wh, torch.log(boxes_wh / anchors_wh)], 1)
 
 
 def box2delta_rotated(boxes, anchors):
-    'Convert boxes to deltas from anchors'
+    "Convert boxes to deltas from anchors"
 
     anchors_wh = anchors[:, 2:4] - anchors[:, :2] + 1
     anchors_ctr = anchors[:, :2] + 0.5 * anchors_wh
@@ -88,14 +87,19 @@ def box2delta_rotated(boxes, anchors):
     boxes_sin = boxes[:, 4]
     boxes_cos = boxes[:, 5]
 
-    return torch.cat([
-        (boxes_ctr - anchors_ctr) / anchors_wh,
-        torch.log(boxes_wh / anchors_wh), boxes_sin[:, None], boxes_cos[:, None]
-    ], 1)
+    return torch.cat(
+        [
+            (boxes_ctr - anchors_ctr) / anchors_wh,
+            torch.log(boxes_wh / anchors_wh),
+            boxes_sin[:, None],
+            boxes_cos[:, None],
+        ],
+        1,
+    )
 
 
 def delta2box(deltas, anchors, size, stride):
-    'Convert deltas from anchors to boxes'
+    "Convert deltas from anchors to boxes"
 
     anchors_wh = anchors[:, 2:] - anchors[:, :2] + 1
     ctr = anchors[:, :2] + 0.5 * anchors_wh
@@ -103,16 +107,13 @@ def delta2box(deltas, anchors, size, stride):
     pred_wh = torch.exp(deltas[:, 2:]) * anchors_wh
 
     m = torch.zeros([2], device=deltas.device, dtype=deltas.dtype)
-    M = (torch.tensor([size], device=deltas.device, dtype=deltas.dtype) * stride - 1)
+    M = torch.tensor([size], device=deltas.device, dtype=deltas.dtype) * stride - 1
     clamp = lambda t: torch.max(m, torch.min(t, M))
-    return torch.cat([
-        clamp(pred_ctr - 0.5 * pred_wh),
-        clamp(pred_ctr + 0.5 * pred_wh - 1)
-    ], 1)
+    return torch.cat([clamp(pred_ctr - 0.5 * pred_wh), clamp(pred_ctr + 0.5 * pred_wh - 1)], 1)
 
 
 def delta2box_rotated(deltas, anchors, size, stride):
-    'Convert deltas from anchors to boxes'
+    "Convert deltas from anchors to boxes"
 
     anchors_wh = anchors[:, 2:4] - anchors[:, :2] + 1
     ctr = anchors[:, :2] + 0.5 * anchors_wh
@@ -122,25 +123,30 @@ def delta2box_rotated(deltas, anchors, size, stride):
     pred_cos = deltas[:, 5]
 
     m = torch.zeros([2], device=deltas.device, dtype=deltas.dtype)
-    M = (torch.tensor([size], device=deltas.device, dtype=deltas.dtype) * stride - 1)
+    M = torch.tensor([size], device=deltas.device, dtype=deltas.dtype) * stride - 1
     clamp = lambda t: torch.max(m, torch.min(t, M))
-    return torch.cat([
-        clamp(pred_ctr - 0.5 * pred_wh),
-        clamp(pred_ctr + 0.5 * pred_wh - 1),
-        torch.atan2(pred_sin, pred_cos)[:, None]
-    ], 1)
+    return torch.cat(
+        [
+            clamp(pred_ctr - 0.5 * pred_wh),
+            clamp(pred_ctr + 0.5 * pred_wh - 1),
+            torch.atan2(pred_sin, pred_cos)[:, None],
+        ],
+        1,
+    )
 
 
 def snap_to_anchors(boxes, size, stride, anchors, num_classes, device, anchor_ious):
-    'Snap target boxes (x, y, w, h) to anchors'
+    "Snap target boxes (x, y, w, h) to anchors"
 
     num_anchors = anchors.size()[0] if anchors is not None else 1
     width, height = (int(size[0] / stride), int(size[1] / stride))
 
     if boxes.nelement() == 0:
-        return (torch.zeros([num_anchors, num_classes, height, width], device=device),
-                torch.zeros([num_anchors, 4, height, width], device=device),
-                torch.zeros([num_anchors, 1, height, width], device=device))
+        return (
+            torch.zeros([num_anchors, num_classes, height, width], device=device),
+            torch.zeros([num_anchors, 4, height, width], device=device),
+            torch.zeros([num_anchors, 1, height, width], device=device),
+        )
 
     boxes, classes = boxes.split(4, dim=1)
 
@@ -172,25 +178,40 @@ def snap_to_anchors(boxes, size, stride, anchors, num_classes, device, anchor_io
     depth = depth.view(num_anchors, width, height).transpose(1, 2).contiguous()
 
     # Generate target classes
-    cls_target = torch.zeros((anchors.size()[0], num_classes + 1), device=device, dtype=boxes.dtype)
+    # cls_target = torch.zeros((anchors.size()[0], num_classes + 1), device=device, dtype=boxes.dtype)
+    cls_target = torch.zeros((anchors.size()[0], num_classes), device=device, dtype=boxes.dtype)
     if classes.nelement() == 0:
-        classes = torch.LongTensor([num_classes], device=device).expand_as(indices)
+        # classes = torch.LongTensor([num_classes], device=device).expand_as(indices)
+        classes = torch.LongTensor([num_classes - 1], device=device).expand_as(indices)
     else:
         classes = classes[indices].long()
     classes = classes.view(-1, 1)
-    classes[overlap < anchor_ious[0]] = num_classes  # background has no class
-    cls_target.scatter_(1, classes, 1)
-    cls_target = cls_target[:, :num_classes].view(-1, 1, width, height, num_classes)
+    # classes[overlap < anchor_ious[0]] = num_classes  # background has no class
+    # cls_target.scatter_(1, classes, 1)
+
+    for index, degree in enumerate(range(num_classes - 1)[::-1]):
+        difference = classes - 2 ** degree
+        cls_target[difference.squeeze() >= 0, index] = 1
+        classes[difference >= 0] -= 2 ** degree
+    # last column = background. 0 if background, 1 if object. If 0, then all other labels are -1.
+    cls_target[overlap < anchor_ious[0], -1] = 1
+    cls_target[:, -1] = 1 - cls_target[:, -1]  # inverse background to be 0
+    cls_target[cls_target[:, -1] == 0, :-1] = -1  # ignore all other labels if background
+
+    # cls_target = cls_target[:, :num_classes].view(-1, 1, width, height, num_classes)
+    cls_target = cls_target.view(-1, 1, width, height, num_classes)
     cls_target = cls_target.transpose(1, 4).transpose(2, 3)
     cls_target = cls_target.squeeze().contiguous()
 
-    return (cls_target.view(num_anchors, num_classes, height, width),
-            box_target.view(num_anchors, 4, height, width),
-            depth.view(num_anchors, 1, height, width))
+    return (
+        cls_target.view(num_anchors, num_classes, height, width),
+        box_target.view(num_anchors, 4, height, width),
+        depth.view(num_anchors, 1, height, width),
+    )
 
 
 def snap_to_anchors_rotated(boxes, size, stride, anchors, num_classes, device, anchor_ious):
-    'Snap target boxes (x, y, w, h, a) to anchors'
+    "Snap target boxes (x, y, w, h, a) to anchors"
 
     anchors_axis, anchors_rotated = anchors
 
@@ -198,13 +219,15 @@ def snap_to_anchors_rotated(boxes, size, stride, anchors, num_classes, device, a
     width, height = (int(size[0] / stride), int(size[1] / stride))
 
     if boxes.nelement() == 0:
-        return (torch.zeros([num_anchors, num_classes, height, width], device=device),
-                torch.zeros([num_anchors, 6, height, width], device=device),
-                torch.zeros([num_anchors, 1, height, width], device=device))
+        return (
+            torch.zeros([num_anchors, num_classes, height, width], device=device),
+            torch.zeros([num_anchors, 6, height, width], device=device),
+            torch.zeros([num_anchors, 1, height, width], device=device),
+        )
 
     boxes, classes = boxes.split(5, dim=1)
     boxes_axis, boxes_rotated = rotate_boxes(boxes)
-    
+
     boxes_axis = boxes_axis.to(device)
     boxes_rotated = boxes_rotated.to(device)
     anchors_axis = anchors_axis.to(device)
@@ -247,22 +270,24 @@ def snap_to_anchors_rotated(boxes, size, stride, anchors, num_classes, device, a
     cls_target = cls_target.transpose(1, 4).transpose(2, 3)
     cls_target = cls_target.squeeze().contiguous()
 
-    return (cls_target.view(num_anchors, num_classes, height, width),
-            box_target.view(num_anchors, 6, height, width),
-            depth.view(num_anchors, 1, height, width))
+    return (
+        cls_target.view(num_anchors, num_classes, height, width),
+        box_target.view(num_anchors, 6, height, width),
+        depth.view(num_anchors, 1, height, width),
+    )
 
 
 def decode(all_cls_head, all_box_head, stride=1, threshold=0.05, top_n=1000, anchors=None, rotated=False):
-    'Box Decoding and Filtering'
+    "Box Decoding and Filtering"
 
     if rotated:
         anchors = anchors[0]
     num_boxes = 4 if not rotated else 6
 
-    if torch.cuda.is_available():
-        return decode_cuda(all_cls_head.float(), all_box_head.float(),
-            anchors.view(-1).tolist(), stride, threshold, top_n, rotated)
-
+    # if torch.cuda.is_available():
+    #     return decode_cuda(
+    #         all_cls_head.float(), all_box_head.float(), anchors.view(-1).tolist(), stride, threshold, top_n, rotated
+    #     )
     device = all_cls_head.device
     anchors = anchors.to(device).type(all_cls_head.type())
     num_anchors = anchors.size()[0] if anchors is not None else 1
@@ -287,7 +312,6 @@ def decode(all_cls_head, all_box_head, stride=1, threshold=0.05, top_n=1000, anc
         # Gather top elements
         scores = torch.index_select(cls_head, 0, keep)
         scores, indices = torch.topk(scores, min(top_n, keep.size()[0]), dim=0)
-        indices = torch.index_select(keep, 0, indices).view(-1)
         classes = (indices / width / height) % num_classes
         classes = classes.type(all_cls_head.type())
 
@@ -302,19 +326,18 @@ def decode(all_cls_head, all_box_head, stride=1, threshold=0.05, top_n=1000, anc
             grid = torch.stack([x, y, x, y], 1).type(all_cls_head.type()) * stride + anchors[a, :]
             boxes = delta2box(boxes, grid, [width, height], stride)
 
-        out_scores[batch, :scores.size()[0]] = scores
-        out_boxes[batch, :boxes.size()[0], :] = boxes
-        out_classes[batch, :classes.size()[0]] = classes
+        out_scores[batch, : scores.size()[0]] = scores
+        out_boxes[batch, : boxes.size()[0], :] = boxes
+        out_classes[batch, : classes.size()[0]] = classes
 
     return out_scores, out_boxes, out_classes
 
 
 def nms(all_scores, all_boxes, all_classes, nms=0.5, ndetections=100):
-    'Non Maximum Suppression'
+    "Non Maximum Suppression"
 
     if torch.cuda.is_available():
-        return nms_cuda(all_scores.float(), all_boxes.float(), all_classes.float(), 
-            nms, ndetections, False)
+        return nms_cuda(all_scores.float(), all_boxes.float(), all_classes.float(), nms, ndetections, False)
 
     device = all_scores.device
     batch_size = all_scores.size()[0]
@@ -348,9 +371,7 @@ def nms(all_scores, all_boxes, all_classes, nms=0.5, ndetections=100):
             xy1 = torch.max(boxes[:, :2], boxes[i, :2])
             xy2 = torch.min(boxes[:, 2:], boxes[i, 2:])
             inter = torch.prod((xy2 - xy1 + 1).clamp(0), 1)
-            criterion = ((scores > scores[i]) |
-                         (inter / (areas + areas[i] - inter) <= nms) |
-                         (classes != classes[i]))
+            criterion = (scores > scores[i]) | (inter / (areas + areas[i] - inter) <= nms) | (classes != classes[i])
             criterion[i] = 1
 
             # Only keep relevant boxes
@@ -360,19 +381,18 @@ def nms(all_scores, all_boxes, all_classes, nms=0.5, ndetections=100):
             areas = areas[criterion.nonzero()].view(-1)
             keep[(~criterion).nonzero()] = 0
 
-        out_scores[batch, :i + 1] = scores[:i + 1]
-        out_boxes[batch, :i + 1, :] = boxes[:i + 1, :]
-        out_classes[batch, :i + 1] = classes[:i + 1]
+        out_scores[batch, : i + 1] = scores[: i + 1]
+        out_boxes[batch, : i + 1, :] = boxes[: i + 1, :]
+        out_classes[batch, : i + 1] = classes[: i + 1]
 
     return out_scores, out_boxes, out_classes
 
 
 def nms_rotated(all_scores, all_boxes, all_classes, nms=0.5, ndetections=100):
-    'Non Maximum Suppression'
+    "Non Maximum Suppression"
 
     if torch.cuda.is_available():
-        return nms_cuda(all_scores.float(), all_boxes.float(), all_classes.float(), 
-            nms, ndetections, True)
+        return nms_cuda(all_scores.float(), all_boxes.float(), all_classes.float(), nms, ndetections, True)
 
     device = all_scores.device
     batch_size = all_scores.size()[0]
@@ -407,9 +427,7 @@ def nms_rotated(all_scores, all_boxes, all_classes, nms=0.5, ndetections=100):
             boxes_axis, boxes_rotated = rotate_boxes(boxes_theta, points=True)
             overlap, inter = iou(boxes_rotated.contiguous().view(-1), boxes_rotated[i, :].contiguous().view(-1))
             inter = inter.squeeze()
-            criterion = ((scores > scores[i]) |
-                         (inter / (areas + areas[i] - inter) <= nms) |
-                         (classes != classes[i]))
+            criterion = (scores > scores[i]) | (inter / (areas + areas[i] - inter) <= nms) | (classes != classes[i])
             criterion[i] = 1
 
             # Only keep relevant boxes
@@ -420,8 +438,8 @@ def nms_rotated(all_scores, all_boxes, all_classes, nms=0.5, ndetections=100):
             areas = areas[criterion.nonzero()].view(-1)
             keep[(~criterion).nonzero()] = 0
 
-        out_scores[batch, :i + 1] = scores[:i + 1]
-        out_boxes[batch, :i + 1, :] = boxes[:i + 1, :]
-        out_classes[batch, :i + 1] = classes[:i + 1]
+        out_scores[batch, : i + 1] = scores[: i + 1]
+        out_boxes[batch, : i + 1, :] = boxes[: i + 1, :]
+        out_classes[batch, : i + 1] = classes[: i + 1]
 
     return out_scores, out_boxes, out_classes
