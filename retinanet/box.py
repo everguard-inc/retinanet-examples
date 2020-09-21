@@ -298,21 +298,33 @@ def decode(all_cls_head, all_box_head, stride=1, threshold=0.05, top_n=1000, anc
     out_scores = torch.zeros((batch_size, top_n), device=device)
     out_boxes = torch.zeros((batch_size, top_n, num_boxes), device=device)
     out_classes = torch.zeros((batch_size, top_n), device=device)
-
     # Per item in batch
     for batch in range(batch_size):
         cls_head = all_cls_head[batch, :, :, :].contiguous().view(-1)
         box_head = all_box_head[batch, :, :, :].contiguous().view(-1, num_boxes)
-
         # Keep scores over threshold
-        keep = (cls_head >= threshold).nonzero().view(-1)
+        object_score_inds = torch.tensor(
+            [
+                delta + width * height * index
+                for index in range(num_classes - 1, num_classes * num_anchors, num_classes)
+                for delta in range(width * height)
+            ]
+        ).cuda()
+        keep = object_score_inds.index_select(
+            0, (cls_head.index_select(0, object_score_inds) >= threshold).nonzero().view(-1)
+        ).view(-1)
+
         if keep.nelement() == 0:
             continue
 
         # Gather top elements
         scores = torch.index_select(cls_head, 0, keep)
         scores, indices = torch.topk(scores, min(top_n, keep.size()[0]), dim=0)
-        classes = (indices / width / height) % num_classes
+        indices = torch.index_select(keep, 0, indices).view(-1)
+        classes = torch.zeros(indices.size()).cuda()
+        for degree in range(num_classes - 1):
+            prev_class_labels = indices - (degree + 1) * width * height
+            classes += (cls_head.index_select(0, prev_class_labels) >= 0.5).long() * 2 ** degree
         classes = classes.type(all_cls_head.type())
 
         # Infer kept bboxes
@@ -336,8 +348,8 @@ def decode(all_cls_head, all_box_head, stride=1, threshold=0.05, top_n=1000, anc
 def nms(all_scores, all_boxes, all_classes, nms=0.5, ndetections=100):
     "Non Maximum Suppression"
 
-    if torch.cuda.is_available():
-        return nms_cuda(all_scores.float(), all_boxes.float(), all_classes.float(), nms, ndetections, False)
+    # if torch.cuda.is_available():
+    #     return nms_cuda(all_scores.float(), all_boxes.float(), all_classes.float(), nms, ndetections, False)
 
     device = all_scores.device
     batch_size = all_scores.size()[0]
