@@ -145,16 +145,16 @@ class CocoDataset(data.dataset.Dataset):
 
             target = torch.cat([boxes, categories], dim=1)
 
-        kek = np.asarray(im)
-        cv2.rectangle(
-            kek,
-            (int(boxes[0, 0]), int(boxes[0, 1])),
-            (int(boxes[0, 0]) + int(boxes[0, 2]), int(boxes[0, 1]) + int(boxes[0, 3])),
-            (0, 255, 0),
-            thickness=4,
-        )
-        plt.imshow(kek)
-        plt.show()
+        # kek = np.asarray(im)
+        # cv2.rectangle(
+        #     kek,
+        #     (int(boxes[0, 0]), int(boxes[0, 1])),
+        #     (int(boxes[0, 0]) + int(boxes[0, 2]), int(boxes[0, 1]) + int(boxes[0, 3])),
+        #     (0, 255, 0),
+        #     thickness=4,
+        # )
+        # plt.imshow(kek)
+        # plt.show()
 
         # Convert to tensor and normalize
         data = torch.ByteTensor(torch.ByteStorage.from_buffer(im.tobytes()))
