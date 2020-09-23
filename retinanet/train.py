@@ -1,19 +1,19 @@
 import os
-from copy import deepcopy
 from math import isfinite
 from shutil import copyfile
 from statistics import mean
 
 import torch
-from apex import amp, optimizers
+from apex import amp
 from apex.parallel import DistributedDataParallel
-from torch.optim import SGD, AdamW
+from torch.optim import SGD
 from torch.optim.lr_scheduler import LambdaLR
 
 from .backbones.layers import convert_fixedbn_model
 from .dali import DaliDataIterator
 from .data import DataIterator, RotatedDataIterator
 from .infer import infer
+from .scheduler import CosineAnnealingWarmUpWarmRestartsCooldown
 from .utils import Profiler, ignore_sigint, post_metrics
 
 
@@ -79,12 +79,13 @@ def train(
     if "optimizer" in state:
         optimizer.load_state_dict(state["optimizer"])
 
-    def schedule(train_iter):
-        if warmup and train_iter <= warmup:
-            return 0.9 * train_iter / warmup + 0.1
-        return gamma ** len([m for m in milestones if m <= train_iter])
+    # def schedule(train_iter):
+    #     if warmup and train_iter <= warmup:
+    #         return 0.9 * train_iter / warmup + 0.1
+    #     return gamma ** len([m for m in milestones if m <= train_iter])
 
-    scheduler = LambdaLR(optimizer, schedule)
+    # scheduler = LambdaLR(optimizer, schedule)
+    scheduler = CosineAnnealingWarmUpWarmRestartsCooldown(optimizer, T_0=iterations, T_warmup=warmup, eta_max=lr)
 
     # Prepare dataset
     if verbose:
@@ -153,12 +154,11 @@ def train(
 
     profiler = Profiler(["train", "fw", "bw"])
     iteration = state.get("iteration", 0)
-    validation_final_metrics = dict()
     while iteration < iterations:
         if logdir is not None:
             state["path"] = os.path.join(checkpoints_folder, "last.pth")
         cls_losses, box_losses = [], []
-        for i, (data, target) in enumerate(data_iterator):
+        for _, (data, target) in enumerate(data_iterator):
             if iteration >= iterations:
                 break
 
@@ -229,10 +229,14 @@ def train(
                     )
 
                 # Save model weights
-                state.update(
-                    {"iteration": iteration, "optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict(),}
-                )
                 if not val_annotations:
+                    state.update(
+                        {
+                            "iteration": iteration,
+                            "optimizer": optimizer.state_dict(),
+                            "scheduler": scheduler.state_dict(),
+                        }
+                    )
                     with ignore_sigint():
                         nn_model.save(state)
 
@@ -240,7 +244,7 @@ def train(
                 del cls_losses[:], box_losses[:]
 
             if val_annotations and (iteration == iterations or iteration % val_iterations == 0):
-                output = infer(
+                validation_final_metrics = infer(
                     model,
                     val_path,
                     None,
@@ -256,43 +260,42 @@ def train(
                     verbose=False,
                     rotated_bbox=rotated_bbox,
                 )
-                if output is not None:
-                    validation_final_metrics = output
-                    if logdir is not None:
-                        score = validation_final_metrics["total_infraction_f1"]
-                        for index, top_score in enumerate(top_3_scores):
-                            if score > top_score:
-                                top_3_scores = (
-                                    top_3_scores[:index] + [score] + top_3_scores[index : len(top_3_scores) - 1]
-                                )
-                                for index_left in range(index + 1, len(top_3_scores))[::-1]:
-                                    src = os.path.join(checkpoints_folder, f"best_top_{index_left}.pth")
-                                    if os.path.exists(src):
-                                        copyfile(
-                                            src, os.path.join(checkpoints_folder, f"best_top_{index_left + 1}.pth"),
-                                        )
-                                state.update(
-                                    {
-                                        "iteration": iteration,
-                                        "optimizer": optimizer.state_dict(),
-                                        "scheduler": scheduler.state_dict(),
-                                        "path": os.path.join(checkpoints_folder, f"best_top_{index + 1}.pth"),
-                                        "score": score,
-                                    }
-                                )
-                                with ignore_sigint():
-                                    nn_model.save(state)
-                                # return back
-                                state["path"] = os.path.join(checkpoints_folder, "last.pth")
-                                break
+                if validation_final_metrics is not None and logdir is not None:
+                    # tensorboard write
+                    for key, value in validation_final_metrics.items():
+                        writer.add_scalar(key, value, iteration)
+
+                    score = validation_final_metrics["total_infraction_f1"]
+                    for index, top_score in enumerate(top_3_scores):
+                        if score > top_score:
+                            top_3_scores = top_3_scores[:index] + [score] + top_3_scores[index : len(top_3_scores) - 1]
+                            for index_left in range(index + 1, len(top_3_scores))[::-1]:
+                                src = os.path.join(checkpoints_folder, f"best_top_{index_left}.pth")
+                                if os.path.exists(src):
+                                    copyfile(
+                                        src, os.path.join(checkpoints_folder, f"best_top_{index_left + 1}.pth"),
+                                    )
+                            state.update(
+                                {
+                                    "iteration": iteration,
+                                    "optimizer": optimizer.state_dict(),
+                                    "scheduler": scheduler.state_dict(),
+                                    "path": os.path.join(checkpoints_folder, f"best_top_{index + 1}.pth"),
+                                    "score": score,
+                                }
+                            )
+                            with ignore_sigint():
+                                nn_model.save(state)
+                            # return back
+                            state["path"] = os.path.join(checkpoints_folder, "last.pth")
+                            break
 
                 with ignore_sigint():
                     nn_model.save(state)
                 model.train()
 
             if logdir is not None:
-                for key, value in validation_final_metrics.items():
-                    writer.add_scalar(key, value, iteration)
+                writer.add_scalar("learning_rate", optimizer.param_groups[0]["lr"], iteration)
 
             if (iteration == iterations and not rotated_bbox) or (iteration > iterations and rotated_bbox):
                 break
