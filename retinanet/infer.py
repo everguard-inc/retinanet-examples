@@ -182,11 +182,9 @@ def infer(
 
             with open(annotations) as file:
                 gt_objects = json.load(file)
-            final_metrics = f1_jaccard_score(
-                detections,
-                gt_objects,
-            )
-
+            final_metrics = f1_jaccard_score(detections, gt_objects)
             print(final_metrics)
+            return final_metrics
         else:
             print("No detections!")
+            return None
