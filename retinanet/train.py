@@ -1,4 +1,7 @@
+import os
+from copy import deepcopy
 from math import isfinite
+from shutil import copyfile
 from statistics import mean
 
 import torch
@@ -136,16 +139,24 @@ def train(
 
     # Create TensorBoard writer
     if logdir is not None:
+        logs_folder = os.path.join(logdir, "logs")
+        os.makedirs(logs_folder, exist_ok=True)
         from torch.utils.tensorboard import SummaryWriter
 
         if is_master and verbose:
-            print("Writing TensorBoard logs to: {}".format(logdir))
-        writer = SummaryWriter(log_dir=logdir)
+            print("Writing TensorBoard logs to: {}".format(logs_folder))
+        writer = SummaryWriter(log_dir=logs_folder)
+
+        checkpoints_folder = os.path.join(logdir, "checkpoints")
+        os.makedirs(checkpoints_folder, exist_ok=True)
+        top_3_scores = [0, 0, 0]
 
     profiler = Profiler(["train", "fw", "bw"])
     iteration = state.get("iteration", 0)
     validation_final_metrics = dict()
     while iteration < iterations:
+        if logdir is not None:
+            state["path"] = os.path.join(checkpoints_folder, "last.pth")
         cls_losses, box_losses = [], []
         for i, (data, target) in enumerate(data_iterator):
             if iteration >= iterations:
@@ -221,8 +232,9 @@ def train(
                 state.update(
                     {"iteration": iteration, "optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict(),}
                 )
-                with ignore_sigint():
-                    nn_model.save(state)
+                if not val_annotations:
+                    with ignore_sigint():
+                        nn_model.save(state)
 
                 profiler.reset()
                 del cls_losses[:], box_losses[:]
@@ -246,6 +258,36 @@ def train(
                 )
                 if output is not None:
                     validation_final_metrics = output
+                    if logdir is not None:
+                        score = validation_final_metrics["total_infraction_f1"]
+                        for index, top_score in enumerate(top_3_scores):
+                            if score > top_score:
+                                top_3_scores = (
+                                    top_3_scores[:index] + [score] + top_3_scores[index : len(top_3_scores) - 1]
+                                )
+                                for index_left in range(index + 1, len(top_3_scores))[::-1]:
+                                    src = os.path.join(checkpoints_folder, f"best_top_{index_left}.pth")
+                                    if os.path.exists(src):
+                                        copyfile(
+                                            src, os.path.join(checkpoints_folder, f"best_top_{index_left + 1}.pth"),
+                                        )
+                                state.update(
+                                    {
+                                        "iteration": iteration,
+                                        "optimizer": optimizer.state_dict(),
+                                        "scheduler": scheduler.state_dict(),
+                                        "path": os.path.join(checkpoints_folder, f"best_top_{index + 1}.pth"),
+                                        "score": score,
+                                    }
+                                )
+                                with ignore_sigint():
+                                    nn_model.save(state)
+                                # return back
+                                state["path"] = os.path.join(checkpoints_folder, "last.pth")
+                                break
+
+                with ignore_sigint():
+                    nn_model.save(state)
                 model.train()
 
             if logdir is not None:
