@@ -260,6 +260,11 @@ def train(
                     verbose=False,
                     rotated_bbox=rotated_bbox,
                 )
+                state.update(
+                    {"iteration": iteration, "optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict()}
+                )
+                with ignore_sigint():
+                    nn_model.save(state)
                 if validation_final_metrics is not None and logdir is not None:
                     # tensorboard write
                     for key, value in validation_final_metrics.items():
@@ -277,9 +282,6 @@ def train(
                                     )
                             state.update(
                                 {
-                                    "iteration": iteration,
-                                    "optimizer": optimizer.state_dict(),
-                                    "scheduler": scheduler.state_dict(),
                                     "path": os.path.join(checkpoints_folder, f"best_top_{index + 1}.pth"),
                                     "score": score,
                                 }
@@ -287,11 +289,8 @@ def train(
                             with ignore_sigint():
                                 nn_model.save(state)
                             # return back
-                            state["path"] = os.path.join(checkpoints_folder, "last.pth")
+                            state.pop("score")
                             break
-
-                with ignore_sigint():
-                    nn_model.save(state)
                 model.train()
 
             if logdir is not None:
