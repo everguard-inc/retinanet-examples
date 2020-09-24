@@ -246,6 +246,7 @@ def train(
                 del cls_losses[:], box_losses[:]
 
             if val_annotations and (iteration == iterations or iteration % val_iterations == 0):
+                model.eval()
                 validation_final_metrics = infer(
                     model,
                     val_path,

@@ -50,7 +50,14 @@ class CocoDataset(data.dataset.Dataset):
         self.augment_saturation = augment_saturation
         if self.augment_free_rotate is not None:
             self.albu_transforms = alb.Compose(
-                [alb.ShiftScaleRotate(shift_limit=0, scale_limit=0, rotate_limit=self.augment_free_rotate[-1], p=1.0)],
+                [
+                    alb.ShiftScaleRotate(
+                        shift_limit=0,
+                        scale_limit=self.augment_free_rotate[-1] * 0.005,
+                        rotate_limit=self.augment_free_rotate[-1],
+                        p=1.0,
+                    )
+                ],
                 bbox_params={"format": "coco", "min_area": 1, "label_fields": ["category_id"]},
             )
 
@@ -96,8 +103,12 @@ class CocoDataset(data.dataset.Dataset):
                         torch.FloatTensor(aug_result["bboxes"]),
                         torch.FloatTensor(aug_result["category_id"]).unsqueeze(-1),
                     )
+                    if len(boxes) == 0:
+                        boxes = torch.ones([1, 4])
+                        categories = torch.ones([1, 1]) * -1
                 except ValueError as error:
-                    print(f"Bad bboxes: {error}")
+                    pass
+                    # print(f"Bad bboxes: {error}")
 
             # Random rotation, if self.rotate_augment
             random_angle = random.randint(0, 3) * 90
@@ -202,8 +213,11 @@ class CocoDataset(data.dataset.Dataset):
         if self.training:
             data, targets = zip(*batch)
             max_det = max([t.size()[0] for t in targets])
-            targets = [torch.cat([t, torch.ones([max_det - t.size()[0], 5]) * -1]) for t in targets]
-            targets = torch.stack(targets, 0)
+            try:
+                targets = [torch.cat([t, torch.ones([max_det - t.size()[0], 5]) * -1]) for t in targets]
+                targets = torch.stack(targets, 0)
+            except:
+                print(targets, targets.size())
         else:
             data, indices, ratios = zip(*batch)
 
