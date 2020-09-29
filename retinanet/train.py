@@ -88,6 +88,9 @@ def train(
     # scheduler = LambdaLR(optimizer, schedule)
     scheduler = CosineAnnealingWarmUpWarmRestartsCooldown(optimizer, T_0=iterations, T_warmup=warmup, eta_max=lr)
 
+    if "scheduler" in state:
+        scheduler.load_state_dict(state["scheduler"])
+
     # Prepare dataset
     if verbose:
         print("Preparing dataset...")
