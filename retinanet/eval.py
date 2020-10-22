@@ -203,6 +203,7 @@ def f1_jaccard_score(predict_annotations, gt_objects, iou_threshold=0.5, nms_thr
     total_f1_score: float = 0
     total_precision: float = 0
     total_recall: float = 0
+    total_classes = 0
     for class_id in results:
         class_name = classes_dict[class_id]
         tp = results[class_id]["tp"]
@@ -216,14 +217,16 @@ def f1_jaccard_score(predict_annotations, gt_objects, iou_threshold=0.5, nms_thr
         final_metrics[class_name + " recall"] = recall
         final_metrics[class_name + " f1_score"] = f1_score
         final_metrics[class_name + " jaccard"] = jaccard
-        total_precision += precision
-        total_recall += recall
-        total_f1_score += f1_score
-        total_jaccard += jaccard
-    final_metrics["total_infraction_jaccard"] = total_jaccard / len(results)
-    final_metrics["total_infraction_f1"] = total_f1_score / len(results)
-    final_metrics["total_infraction_precision"] = total_precision / len(results)
-    final_metrics["total_infraction_recall"] = total_recall / len(results)
+        if not "invisible" in classes_dict[class_id]:
+            total_precision += precision
+            total_recall += recall
+            total_f1_score += f1_score
+            total_jaccard += jaccard
+            total_classes += 1
+    final_metrics["total_infraction_jaccard"] = total_jaccard / total_classes
+    final_metrics["total_infraction_f1"] = total_f1_score / total_classes
+    final_metrics["total_infraction_precision"] = total_precision / total_classes
+    final_metrics["total_infraction_recall"] = total_recall / total_classes
 
     # human metrics
     tp = human_results["tp"]

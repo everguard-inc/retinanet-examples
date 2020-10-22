@@ -159,6 +159,8 @@ def train(
 
     profiler = Profiler(["train", "fw", "bw"])
     iteration = state.get("iteration", 0)
+    print(f"Total number of iterations per epoch: f{len(data_iterator)}")
+
     while iteration < iterations:
         if logdir is not None:
             state["path"] = os.path.join(checkpoints_folder, "last.pth")
