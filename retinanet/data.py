@@ -279,7 +279,7 @@ class DataIterator:
         self.ids = self.dataset.ids
         self.coco = self.dataset.coco
 
-        self.sampler = data.distributed.DistributedSampler(self.dataset) if world > 1 else None
+        self.sampler = data.distributed.DistributedSampler(self.dataset, shuffle=True) if world > 1 else None
         self.dataloader = data.DataLoader(
             self.dataset,
             batch_size=batch_size // world,
@@ -287,6 +287,7 @@ class DataIterator:
             collate_fn=self.dataset.collate_fn,
             num_workers=2,
             pin_memory=True,
+            shuffle=(self.sampler is None)
         )
 
     def __repr__(self):

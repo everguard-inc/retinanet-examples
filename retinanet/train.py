@@ -164,6 +164,11 @@ def train(
     while iteration < iterations:
         if logdir is not None:
             state["path"] = os.path.join(checkpoints_folder, "last.pth")
+
+        if world > 1:
+            data_iterator.sampler.set_epoch(iteration // len(data_iterator))
+        print(f"Current epoch: {iteration // len(data_iterator)}")
+
         cls_losses, box_losses = [], []
         for _, (data, target) in enumerate(data_iterator):
             if iteration >= iterations:
@@ -174,6 +179,7 @@ def train(
 
             optimizer.zero_grad()
             cls_loss, box_loss = model([data, target])
+
             del data
             profiler.stop("fw")
 
@@ -286,7 +292,8 @@ def train(
                                 src = os.path.join(checkpoints_folder, f"best_top_{index_left}.pth")
                                 if os.path.exists(src):
                                     copyfile(
-                                        src, os.path.join(checkpoints_folder, f"best_top_{index_left + 1}.pth"),
+                                        src,
+                                        os.path.join(checkpoints_folder, f"best_top_{index_left + 1}.pth"),
                                     )
                             state.update(
                                 {
