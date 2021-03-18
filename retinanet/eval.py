@@ -217,7 +217,7 @@ def f1_jaccard_score(predict_annotations, gt_objects, iou_threshold=0.5, nms_thr
         final_metrics[class_name + " recall"] = recall
         final_metrics[class_name + " f1_score"] = f1_score
         final_metrics[class_name + " jaccard"] = jaccard
-        if not "invisible" in classes_dict[class_id]:
+        if "invisible" not in classes_dict[class_id] and (precision > 0 or recall > 0):
             total_precision += precision
             total_recall += recall
             total_f1_score += f1_score
