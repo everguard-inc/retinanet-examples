@@ -242,6 +242,20 @@ class Model(nn.Module):
 
         return model, state
 
+    def save_pruned(self, state):
+        self.state = state
+        torch.save(self, state['path'])
+
+    @classmethod
+    def load_pruned(cls, filename, rotated_bbox=False):
+        model = torch.load(filename)
+        try:
+            state = model.state
+        except:
+            state = {}
+        state['path'] = filename
+        return model, state
+
     def export(self, size, batch, precision, calibration_files, calibration_table, verbose, onnx_only=False):
 
         import torch.onnx.symbolic_opset10 as onnx_symbolic

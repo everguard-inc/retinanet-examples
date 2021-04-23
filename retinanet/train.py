@@ -64,14 +64,14 @@ def train(
     # Setup optimizer and schedule
     optimizer = SGD(model.parameters(), lr=lr, weight_decay=regularization_l2, momentum=0.9)
 
-    model, optimizer = amp.initialize(
-        model,
-        optimizer,
-        opt_level="O2" if mixed_precision else "O0",
-        keep_batchnorm_fp32=True,
-        loss_scale=128.0,
-        verbosity=is_master,
-    )
+    # model, optimizer = amp.initialize(
+    #     model,
+    #     optimizer,
+    #     opt_level="O2" if mixed_precision else "O0",
+    #     keep_batchnorm_fp32=True,
+    #     loss_scale=128.0,
+    #     verbosity=is_master,
+    # )
 
     if world > 1:
         model = DistributedDataParallel(model)
@@ -185,8 +185,11 @@ def train(
 
             # Backward pass
             profiler.start("bw")
-            with amp.scale_loss(cls_loss + box_loss, optimizer) as scaled_loss:
-                scaled_loss.backward()
+            # with amp.scale_loss(cls_loss + box_loss, optimizer) as scaled_loss:
+            #     scaled_loss.backward()
+            scaled_loss = cls_loss + box_loss
+            scaled_loss.backward()
+
             optimizer.step()
 
             scheduler.step()
